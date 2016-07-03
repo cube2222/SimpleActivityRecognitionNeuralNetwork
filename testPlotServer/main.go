@@ -175,7 +175,6 @@ func plotGyroData(w http.ResponseWriter, r *http.Request) {
 	p.Legend.Add("Testing", testingLine)
 
 
-
 	wt, err := p.WriterTo(vg.Inch * 16, vg.Inch * 4, "jpg")
 	if err != nil {
 		fmt.Println(err)
