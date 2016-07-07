@@ -8,6 +8,7 @@ import (
 	"github.com/gonum/plot/vg"
 	"image/color"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"sync"
 )
@@ -108,7 +109,7 @@ func plotGyroData(w http.ResponseWriter, r *http.Request) {
 	}
 	for i := 0; i < len(smoothedGyroData); i++ {
 		testingData[i].X = float64(smoothedGyroData[i].Timestamp - minX)
-		testingData[i].Y = smoothedGyroData[i].Roll + smoothedGyroData[i].Yaw
+		testingData[i].Y = math.Sqrt(smoothedGyroData[i].Roll*smoothedGyroData[i].Roll + smoothedGyroData[i].Yaw*smoothedGyroData[i].Yaw)
 	}
 
 	rollLine, err := plotter.NewLine(rollData)

@@ -1,12 +1,15 @@
 package SimpleActivityRecognitionNeuralNetwork
 
-import "math/rand"
+import (
+	"math/rand"
+)
 
 type Neuron struct {
-	inputs  []chan float64
-	output  chan float64
-	weights []float64
-	bias    float64
+	inputs          []chan float64
+	output          chan float64
+	outputReceivers int
+	weights         []float64
+	bias            float64
 }
 
 func (n *Neuron) heaviside(f float64) int32 {
@@ -31,7 +34,10 @@ func (n *Neuron) Process() {
 	for i, input := range n.inputs {
 		sum += n.weights[i] * (<-input)
 	}
-	n.output <- float64(n.heaviside(sum))
+	answer := float64(n.heaviside(sum))
+	for i := 0; i < n.outputReceivers; i++ {
+		n.output <- answer
+	}
 }
 
 func (n *Neuron) Adjust(inputs []float64, delta int32, learningRate float64) {

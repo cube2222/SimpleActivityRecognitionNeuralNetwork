@@ -6,7 +6,8 @@ type NeuronTrained struct {
 }
 
 type NeuralNetworkTrainedModel struct {
-	LayerOut NeuronTrained   `json:"layerOut"`
-	LayerMid []NeuronTrained `json:"layerMid"`
-	LayerBot []NeuronTrained `json:"layerBot"`
+	LayerOut   NeuronTrained   `json:"layerOut"`
+	LayerOuter []NeuronTrained `json:"layerOuter"`
+	LayerMid   []NeuronTrained `json:"layerMid"`
+	LayerBot   []NeuronTrained `json:"layerBot"`
 }
