@@ -4,45 +4,55 @@ import (
 	"encoding/json"
 )
 
-type NeuralNetwork struct {
-	layerOut     Neuron
-	layerOuter   []Neuron
-	layerMid     []Neuron
-	layerBot     []Neuron
-	bottomInputs []chan float64
-	output       chan float64
+type NeuralNetworkTraining struct {
+	layerOut       Neuron
+	layerOuter     []Neuron
+	layerMid       []Neuron
+	layerBot       []Neuron
+	bottomInputs   []chan float64
+	output         chan float64
+	curOutputs     []chan float64
+	curOutputSaved []float64
 }
 
-func New(botNum int, midNum int, outerNum int) *NeuralNetwork {
-	myNeuralNetwork := NeuralNetwork{}
+func getMax(a int, b int, c int) int {
+	d := a
+	if b > d {
+		d = b
+	}
+	if c > d {
+		d = c
+	}
+	return d
+}
+
+func NewTraining(botNum int, midNum int, outerNum int) *NeuralNetworkTraining {
+	myNeuralNetwork := NeuralNetworkTraining{}
 	myNeuralNetwork.layerBot = make([]Neuron, botNum)
 	myNeuralNetwork.layerMid = make([]Neuron, midNum)
 	myNeuralNetwork.layerOuter = make([]Neuron, outerNum)
-	myNeuralNetwork.bottomInputs = make([]chan float64, botNum)
-	for i := 0; i < botNum; i++ { // Create Neural Network inputs
-		myNeuralNetwork.bottomInputs[i] = make(chan float64)
+
+	myNeuralNetwork.curOutputs = make([]chan float64, getMax(botNum, midNum, outerNum))
+	for i := 0; i < len(myNeuralNetwork.curOutputs); i++ {
+		myNeuralNetwork.curOutputs[i] = make(chan float64)
 	}
+
+	myNeuralNetwork.curOutputSaved = make([]float64, getMax(botNum, midNum, outerNum))
 
 	// Create bottom inputs
 	for i := 0; i < botNum; i++ {
-		myNeuralNetwork.layerBot[i].outputReceivers = midNum
+		myNeuralNetwork.layerBot[i].outputReceivers = 1
 		myNeuralNetwork.layerBot[i].weights = make([]float64, 1)
 		myNeuralNetwork.layerBot[i].inputs = make([]chan float64, 1)
-		myNeuralNetwork.layerBot[i].inputs[0] = myNeuralNetwork.bottomInputs[i]
 		myNeuralNetwork.layerBot[i].output = make(chan float64)
 	}
 
 	// Create mid layer
 	for i := 0; i < midNum; i++ {
-		myNeuralNetwork.layerMid[i].outputReceivers = outerNum
+		myNeuralNetwork.layerMid[i].outputReceivers = 1
 		myNeuralNetwork.layerMid[i].weights = make([]float64, botNum)
 		myNeuralNetwork.layerMid[i].inputs = make([]chan float64, botNum)
 		myNeuralNetwork.layerMid[i].output = make(chan float64)
-	}
-	for i := 0; i < midNum; i++ {
-		for j := 0; j < botNum; j++ {
-			myNeuralNetwork.layerMid[i].inputs[j] = myNeuralNetwork.layerBot[j].output
-		}
 	}
 
 	// Create outer layer
@@ -52,27 +62,18 @@ func New(botNum int, midNum int, outerNum int) *NeuralNetwork {
 		myNeuralNetwork.layerOuter[i].inputs = make([]chan float64, midNum)
 		myNeuralNetwork.layerOuter[i].output = make(chan float64)
 	}
-	for i := 0; i < outerNum; i++ {
-		for j := 0; j < midNum; j++ {
-			myNeuralNetwork.layerOuter[i].inputs[j] = myNeuralNetwork.layerMid[j].output
-		}
-	}
 
 	// Wire outer to out
 	myNeuralNetwork.layerOut.outputReceivers = 1
 	myNeuralNetwork.layerOut.weights = make([]float64, outerNum)
 	myNeuralNetwork.layerOut.inputs = make([]chan float64, outerNum)
-	for i := 0; i < outerNum; i++ {
-		myNeuralNetwork.layerOut.inputs[i] = myNeuralNetwork.layerOuter[i].output
-	}
 
 	myNeuralNetwork.layerOut.output = make(chan float64)
 
-	myNeuralNetwork.output = myNeuralNetwork.layerOut.output
 	return &myNeuralNetwork
 }
 
-func (myNeuralNetwork *NeuralNetwork) InitRandom() {
+func (myNeuralNetwork *NeuralNetworkTraining) InitRandom() {
 	for i := 0; i < len(myNeuralNetwork.layerBot); i++ {
 		myNeuralNetwork.layerBot[i].Randomize()
 	}
@@ -89,7 +90,7 @@ func (myNeuralNetwork *NeuralNetwork) InitRandom() {
 
 }
 
-func (myNeuralNetwork *NeuralNetwork) InitFromJson(data []byte) error {
+func (myNeuralNetwork *NeuralNetworkTraining) InitFromJson(data []byte) error {
 	myNeuralNetworkModel := NeuralNetworkTrainedModel{}
 	err := json.Unmarshal(data, &myNeuralNetworkModel)
 	if err != nil {
@@ -117,7 +118,7 @@ func (myNeuralNetwork *NeuralNetwork) InitFromJson(data []byte) error {
 	return nil
 }
 
-func (myNeuralNetwork *NeuralNetwork) SaveToJson() ([]byte, error) {
+func (myNeuralNetwork *NeuralNetworkTraining) SaveToJson() ([]byte, error) {
 	myNeuralNetworkModel := NeuralNetworkTrainedModel{}
 
 	myNeuralNetworkModel.LayerBot = make([]NeuronTrained, len(myNeuralNetwork.layerBot))
@@ -148,20 +149,17 @@ func (myNeuralNetwork *NeuralNetwork) SaveToJson() ([]byte, error) {
 	return data, nil
 }
 
-func (myNeuralNetwork *NeuralNetwork) Process(inputs []float64) float64 {
+func (myNeuralNetwork *NeuralNetworkTraining) Train(input []float64, output float64, learningRate float64) {
 	for i := 0; i < len(myNeuralNetwork.layerBot); i++ {
+		myNeuralNetwork.layerBot[i].inputs[0] <- input[i]
+		myNeuralNetwork.layerBot[i].output = myNeuralNetwork.curOutputs[i]
 		go myNeuralNetwork.layerBot[i].Process()
 	}
-	for i := 0; i < len(myNeuralNetwork.layerMid); i++ {
-		go myNeuralNetwork.layerMid[i].Process()
+	for i := 0; i < len(myNeuralNetwork.layerBot); i++ {
+		myNeuralNetwork.curOutputSaved[i] <- myNeuralNetwork.curOutputs[i]
 	}
-	for i := 0; i < len(myNeuralNetwork.layerOuter); i++ {
-		go myNeuralNetwork.layerOuter[i].Process()
-	}
-	go myNeuralNetwork.layerOut.Process()
-	for i, item := range myNeuralNetwork.bottomInputs {
-		item <- inputs[i]
+	for i := 0; i < len(myNeuralNetwork.layerBot); i++ {
+		myNeuralNetwork.layerBot[i].Adjust(input[i], output-myNeuralNetwork.curOutputSaved[i], learningRate)
 	}
 
-	return <-myNeuralNetwork.output
 }
