@@ -37,13 +37,14 @@ func NewTraining(botNum int, midNum int, outerNum int) *NeuralNetworkTraining {
 		myNeuralNetwork.curOutputs[i] = make(chan float64)
 	}
 
-	myNeuralNetwork.curOutputSaved = make([]float64, getMax(botNum, midNum, outerNum))
-
 	// Create bottom inputs
 	for i := 0; i < botNum; i++ {
 		myNeuralNetwork.layerBot[i].outputReceivers = 1
 		myNeuralNetwork.layerBot[i].weights = make([]float64, 1)
 		myNeuralNetwork.layerBot[i].inputs = make([]chan float64, 1)
+		for j := 0; j < len(myNeuralNetwork.layerBot[i].inputs); j++ {
+			myNeuralNetwork.layerBot[i].inputs[j] = make(chan float64)
+		}
 		myNeuralNetwork.layerBot[i].output = make(chan float64)
 	}
 
@@ -52,6 +53,9 @@ func NewTraining(botNum int, midNum int, outerNum int) *NeuralNetworkTraining {
 		myNeuralNetwork.layerMid[i].outputReceivers = 1
 		myNeuralNetwork.layerMid[i].weights = make([]float64, botNum)
 		myNeuralNetwork.layerMid[i].inputs = make([]chan float64, botNum)
+		for j := 0; j < len(myNeuralNetwork.layerMid[i].inputs); j++ {
+			myNeuralNetwork.layerMid[i].inputs[j] = make(chan float64)
+		}
 		myNeuralNetwork.layerMid[i].output = make(chan float64)
 	}
 
@@ -60,6 +64,9 @@ func NewTraining(botNum int, midNum int, outerNum int) *NeuralNetworkTraining {
 		myNeuralNetwork.layerOuter[i].outputReceivers = 1
 		myNeuralNetwork.layerOuter[i].weights = make([]float64, midNum)
 		myNeuralNetwork.layerOuter[i].inputs = make([]chan float64, midNum)
+		for j := 0; j < len(myNeuralNetwork.layerOuter[i].inputs); j++ {
+			myNeuralNetwork.layerOuter[i].inputs[j] = make(chan float64)
+		}
 		myNeuralNetwork.layerOuter[i].output = make(chan float64)
 	}
 
@@ -67,6 +74,9 @@ func NewTraining(botNum int, midNum int, outerNum int) *NeuralNetworkTraining {
 	myNeuralNetwork.layerOut.outputReceivers = 1
 	myNeuralNetwork.layerOut.weights = make([]float64, outerNum)
 	myNeuralNetwork.layerOut.inputs = make([]chan float64, outerNum)
+	for i := 0; i < len(myNeuralNetwork.layerOut.inputs); i++ {
+		myNeuralNetwork.layerOut.inputs[i] = make(chan float64)
+	}
 
 	myNeuralNetwork.layerOut.output = make(chan float64)
 
@@ -150,16 +160,80 @@ func (myNeuralNetwork *NeuralNetworkTraining) SaveToJson() ([]byte, error) {
 }
 
 func (myNeuralNetwork *NeuralNetworkTraining) Train(input []float64, output float64, learningRate float64) {
+
+	myNeuralNetwork.curOutputSaved = make([]float64, len(myNeuralNetwork.layerBot))
+
+	// Train bottom layer
 	for i := 0; i < len(myNeuralNetwork.layerBot); i++ {
-		myNeuralNetwork.layerBot[i].inputs[0] <- input[i]
 		myNeuralNetwork.layerBot[i].output = myNeuralNetwork.curOutputs[i]
 		go myNeuralNetwork.layerBot[i].Process()
+		myNeuralNetwork.layerBot[i].inputs[0] <- input[i]
 	}
 	for i := 0; i < len(myNeuralNetwork.layerBot); i++ {
-		myNeuralNetwork.curOutputSaved[i] <- myNeuralNetwork.curOutputs[i]
+		myNeuralNetwork.curOutputSaved[i] = <-myNeuralNetwork.curOutputs[i]
 	}
 	for i := 0; i < len(myNeuralNetwork.layerBot); i++ {
-		myNeuralNetwork.layerBot[i].Adjust(input[i], output-myNeuralNetwork.curOutputSaved[i], learningRate)
+		myNeuralNetwork.layerBot[i].Adjust(input[i:i+1], output-myNeuralNetwork.curOutputSaved[i], learningRate)
 	}
 
+	// Train middle layer
+
+	input = input[0:len(myNeuralNetwork.layerBot)]
+	for i := 0; i < len(input); i++ {
+		input[i] = myNeuralNetwork.curOutputSaved[i]
+	}
+	myNeuralNetwork.curOutputSaved = myNeuralNetwork.curOutputSaved[0:len(myNeuralNetwork.layerMid)]
+
+	for i := 0; i < len(myNeuralNetwork.layerMid); i++ {
+		myNeuralNetwork.layerMid[i].output = myNeuralNetwork.curOutputs[i]
+		go myNeuralNetwork.layerMid[i].Process()
+		for j, curChan := range myNeuralNetwork.layerMid[i].inputs {
+			curChan <- input[j]
+		}
+	}
+	for i := 0; i < len(myNeuralNetwork.layerMid); i++ {
+		myNeuralNetwork.curOutputSaved[i] = <-myNeuralNetwork.curOutputs[i]
+	}
+	for i := 0; i < len(myNeuralNetwork.layerMid); i++ {
+		myNeuralNetwork.layerMid[i].Adjust(input, output-myNeuralNetwork.curOutputSaved[i], learningRate)
+	}
+
+	// Train outer layer
+
+	input = input[0:len(myNeuralNetwork.layerMid)]
+	for i := 0; i < len(input); i++ {
+		input[i] = myNeuralNetwork.curOutputSaved[i]
+	}
+	myNeuralNetwork.curOutputSaved = myNeuralNetwork.curOutputSaved[0:len(myNeuralNetwork.layerOuter)]
+
+	for i := 0; i < len(myNeuralNetwork.layerOuter); i++ {
+		myNeuralNetwork.layerOuter[i].output = myNeuralNetwork.curOutputs[i]
+		go myNeuralNetwork.layerOuter[i].Process()
+		for j, curChan := range myNeuralNetwork.layerOuter[i].inputs {
+			curChan <- input[j]
+		}
+	}
+	for i := 0; i < len(myNeuralNetwork.layerOuter); i++ {
+		myNeuralNetwork.curOutputSaved[i] = <-myNeuralNetwork.curOutputs[i]
+	}
+	for i := 0; i < len(myNeuralNetwork.layerOuter); i++ {
+		myNeuralNetwork.layerOuter[i].Adjust(input, output-myNeuralNetwork.curOutputSaved[i], learningRate)
+	}
+
+	// Train out layer
+
+	input = input[0:len(myNeuralNetwork.layerOuter)]
+	for i := 0; i < len(input); i++ {
+		input[i] = myNeuralNetwork.curOutputSaved[i]
+	}
+
+	myNeuralNetwork.layerOut.output = myNeuralNetwork.curOutputs[0]
+	go myNeuralNetwork.layerOut.Process()
+	for j, curChan := range myNeuralNetwork.layerOut.inputs {
+		curChan <- input[j]
+	}
+
+	myNeuralNetwork.curOutputSaved[0] = <-myNeuralNetwork.curOutputs[0]
+
+	myNeuralNetwork.layerOut.Adjust(input, output-myNeuralNetwork.curOutputSaved[0], learningRate)
 }

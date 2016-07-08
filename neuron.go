@@ -40,9 +40,9 @@ func (n *Neuron) Process() {
 	}
 }
 
-func (n *Neuron) Adjust(inputs []float64, delta int32, learningRate float64) {
+func (n *Neuron) Adjust(inputs []float64, delta float64, learningRate float64) {
 	for i, input := range inputs {
-		n.weights[i] += input * float64(delta) * learningRate
+		n.weights[i] += input * delta * learningRate
 	}
-	n.bias += float64(delta) * learningRate
+	n.bias += delta * learningRate
 }
