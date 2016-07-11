@@ -2,6 +2,7 @@ package SimpleActivityRecognitionNeuralNetwork
 
 import (
 	"encoding/json"
+	"sync"
 )
 
 type NeuralNetworkTraining struct {
@@ -163,6 +164,7 @@ func (myNeuralNetwork *NeuralNetworkTraining) Train(input []float64, output floa
 
 	myNeuralNetwork.curOutputSaved = make([]float64, len(myNeuralNetwork.layerBot))
 
+	wg := sync.WaitGroup{}
 	// Train bottom layer
 	for i := 0; i < len(myNeuralNetwork.layerBot); i++ {
 		myNeuralNetwork.layerBot[i].output = myNeuralNetwork.curOutputs[i]
@@ -173,9 +175,14 @@ func (myNeuralNetwork *NeuralNetworkTraining) Train(input []float64, output floa
 		myNeuralNetwork.curOutputSaved[i] = <-myNeuralNetwork.curOutputs[i]
 	}
 	for i := 0; i < len(myNeuralNetwork.layerBot); i++ {
-		myNeuralNetwork.layerBot[i].Adjust(input[i:i+1], output-myNeuralNetwork.curOutputSaved[i], learningRate)
+		index := i
+		wg.Add(1)
+		go func() {
+			myNeuralNetwork.layerBot[index].Adjust(input[index:index+1], output-myNeuralNetwork.curOutputSaved[index], learningRate)
+			wg.Done()
+		}()
 	}
-
+	wg.Wait()
 	// Train middle layer
 
 	input = input[0:len(myNeuralNetwork.layerBot)]
@@ -195,8 +202,14 @@ func (myNeuralNetwork *NeuralNetworkTraining) Train(input []float64, output floa
 		myNeuralNetwork.curOutputSaved[i] = <-myNeuralNetwork.curOutputs[i]
 	}
 	for i := 0; i < len(myNeuralNetwork.layerMid); i++ {
-		myNeuralNetwork.layerMid[i].Adjust(input, output-myNeuralNetwork.curOutputSaved[i], learningRate)
+		index := i
+		wg.Add(1)
+		go func() {
+			myNeuralNetwork.layerMid[index].Adjust(input, output-myNeuralNetwork.curOutputSaved[index], learningRate)
+			wg.Done()
+		}()
 	}
+	wg.Wait()
 
 	// Train outer layer
 
@@ -217,8 +230,14 @@ func (myNeuralNetwork *NeuralNetworkTraining) Train(input []float64, output floa
 		myNeuralNetwork.curOutputSaved[i] = <-myNeuralNetwork.curOutputs[i]
 	}
 	for i := 0; i < len(myNeuralNetwork.layerOuter); i++ {
-		myNeuralNetwork.layerOuter[i].Adjust(input, output-myNeuralNetwork.curOutputSaved[i], learningRate)
+		index := i
+		wg.Add(1)
+		go func() {
+			myNeuralNetwork.layerOuter[index].Adjust(input, output-myNeuralNetwork.curOutputSaved[index], learningRate)
+			wg.Done()
+		}()
 	}
+	wg.Wait()
 
 	// Train out layer
 
