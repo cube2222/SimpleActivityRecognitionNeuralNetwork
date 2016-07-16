@@ -2,12 +2,9 @@ package main
 
 import (
 	"fmt"
+	"github.com/cube2222/SimpleActivityRecognitionNeuralNetwork/DataAnalysisFromCassandra"
 	"github.com/gocql/gocql"
-	"github.com/gonum/plot"
-	"github.com/gonum/plot/plotter"
-	"github.com/gonum/plot/vg"
 	"github.com/mjibson/go-dsp/fft"
-	"image/color"
 	"log"
 	"math"
 	"os"
@@ -71,7 +68,7 @@ func main() {
 	var yaw float64
 
 	stamp, _ := strconv.Atoi(os.Args[2])
-	iter := session.Query(`SELECT time, pitch, roll, yaw FROM traininggyro WHERE userid='JonatanB' AND starttime=?`, int64(stamp)).Iter()
+	iter := session.Query(`SELECT time, pitch, roll, yaw FROM traininggyro WHERE userid='Bartek' AND starttime=?`, int64(stamp)).Iter()
 	gyroMutex.Lock()
 	for iter.Scan(&time, &pitch, &roll, &yaw) {
 		gyroData = append(gyroData, &orientation{time, pitch, roll, yaw})
@@ -101,12 +98,12 @@ func main() {
 		// End json
 	*/
 
-	//gyroData = smooth(gyroData, 1, 10.0) // 2 - 400.0
+	gyroData = smooth(gyroData, 0, 1.0) // 2 - 400.0
 	gyroMutex.Unlock()
 
 	myData := make([]float64, 0, len(gyroData))
 	for _, item := range gyroData {
-		myData = append(myData, math.Sqrt(item.Pitch*item.Pitch+item.Yaw*item.Yaw))
+		myData = append(myData, item.Pitch) //math.Sqrt(item.Pitch*item.Pitch+item.Yaw*item.Yaw))
 	}
 
 	fourierData := fft.FFTReal(myData)
@@ -137,7 +134,7 @@ func main() {
 		}
 	}*/
 
-	plotToFile(os.Args[3], chartData)
+	DataAnalysisFromCassandra.PlotToFile(os.Args[3], chartData)
 }
 
 func smooth(data []*orientation, iterations int, averageSize float64) []*orientation {
@@ -177,94 +174,3 @@ func smooth(data []*orientation, iterations int, averageSize float64) []*orienta
 
 	return newData
 }
-
-func plotToFile(name string, data []float64) error {
-	file, err := os.Create("/tmp/" + name + ".jpg")
-	defer file.Close()
-	if err != nil {
-		return err
-	}
-	dataXYs := make(plotter.XYs, len(data))
-
-	for i := 0; i < len(data); i++ {
-		dataXYs[i].X = float64(i)
-		dataXYs[i].Y = data[i]
-	}
-
-	line, err := plotter.NewLine(dataXYs)
-	if err != nil {
-		return err
-	}
-
-	line.LineStyle.Width = vg.Points(1)
-	line.LineStyle.Color = color.RGBA{R: 255, B: 255, A: 255}
-
-	p, err := plot.New()
-	if err != nil {
-		return err
-	}
-
-	p.Title.Text = name
-	p.X.Label.Text = "t"
-	p.Y.Label.Text = "Data"
-	p.Add(plotter.NewGrid())
-	p.Add(line)
-
-	wt, err := p.WriterTo(vg.Inch*16, vg.Inch*16, "jpg")
-	if err != nil {
-		return err
-	}
-
-	_, err = wt.WriteTo(file)
-
-	return err
-}
-
-/*
-func plotToFile(name string, data []*orientation) error {
-	file, err := os.Create("/tmp/" + name + ".jpg")
-	defer file.Close()
-	if err != nil {
-		return err
-	}
-	dataXYs := make(plotter.XYs, len(data))
-
-	minX := data[0].Timestamp
-
-	for i := 0; i < len(data); i++ {
-		dataXYs[i].X = float64(data[i].Timestamp - minX)
-		dataXYs[i].Y = (data[i].Pitch * data[i].Pitch + data[i].Yaw * data[i].Yaw)
-		fmt.Println(dataXYs[i].X, dataXYs[i].Y)
-	}
-
-	line, err := plotter.NewLine(dataXYs)
-	if err != nil {
-		return err
-	}
-
-	line.LineStyle.Width = vg.Points(1)
-	line.LineStyle.Color = color.RGBA{R: 255, B: 255, A: 255}
-
-	p, err := plot.New()
-	if err != nil {
-		return err
-	}
-
-	p.Title.Text = name
-	p.X.Label.Text = "t"
-	p.Y.Label.Text = "Data"
-	p.Add(plotter.NewGrid())
-	p.Add(line)
-
-	wt, err := p.WriterTo(vg.Inch * 16, vg.Inch * 16, "jpg")
-	if err != nil {
-		return err
-	}
-
-	_, err = wt.WriteTo(file)
-
-	return err
-}
-*/
-
-//func chartSinusoids(name string, )
