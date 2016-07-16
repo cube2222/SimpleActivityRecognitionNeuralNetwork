@@ -6,10 +6,12 @@ import (
 	"github.com/gonum/plot"
 	"github.com/gonum/plot/plotter"
 	"github.com/gonum/plot/vg"
+	"github.com/mjibson/go-dsp/fft"
 	"image/color"
 	"log"
 	"math"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -68,7 +70,8 @@ func main() {
 	var roll float64
 	var yaw float64
 
-	iter := session.Query(`SELECT time, pitch, roll, yaw FROM traininggyro WHERE userid='JonatanB' AND starttime=1468518081922`).Iter()
+	stamp, _ := strconv.Atoi(os.Args[2])
+	iter := session.Query(`SELECT time, pitch, roll, yaw FROM traininggyro WHERE userid='JonatanB' AND starttime=?`, int64(stamp)).Iter()
 	gyroMutex.Lock()
 	for iter.Scan(&time, &pitch, &roll, &yaw) {
 		gyroData = append(gyroData, &orientation{time, pitch, roll, yaw})
@@ -77,14 +80,67 @@ func main() {
 		log.Fatal(err)
 		return
 	}
+	/*
+		// Begin json
+		data, err := json.Marshal(func() *struct {
+			Data []orientation
+		} {
+			dataStruct := struct {
+				Data []orientation
+			}{}
+			dataStruct.Data = make([]orientation, 0, len(gyroData))
+			for _, item := range gyroData {
+				dataStruct.Data = append(dataStruct.Data, *item)
+			}
+			return &dataStruct
+		}())
 
-	gyroData = smooth(gyroData)
+		file, _ := os.Create("/tmp/myData.json")
+		io.Copy(file, bytes.NewBuffer(data))
+		file.Close()
+		// End json
+	*/
+
+	//gyroData = smooth(gyroData, 1, 10.0) // 2 - 400.0
 	gyroMutex.Unlock()
 
-	plotToFile("dataBasic", gyroData)
+	myData := make([]float64, 0, len(gyroData))
+	for _, item := range gyroData {
+		myData = append(myData, math.Sqrt(item.Pitch*item.Pitch+item.Yaw*item.Yaw))
+	}
+
+	fourierData := fft.FFTReal(myData)
+	/*
+		for i := 0; i < len(fourierData); i++ {
+			r, θ := cmplx.Polar(fourierData[i])
+			θ *= 360.0 / (2 * math.Pi)
+			if dsputils.Float64Equal(r, 0) {
+				θ = 0 // (When the magnitude is close to 0, the angle is meaningless)
+			}
+			fmt.Printf("X(%d) = %.1f ∠ %.1f°\n", i, r, θ)
+		}
+	*/
+
+	chartData := make([]float64, 0, len(fourierData))
+	for _, item := range fourierData {
+		chartData = append(chartData, real(item))
+	}
+	chartData = chartData[:len(chartData)/2]
+	chartData = chartData[1:51]
+	for i, item := range chartData {
+		chartData[i] = math.Abs(item)
+	}
+	/*for i, _ := range fourierData {
+		if i%2 == 0 {
+
+			chartData = append(chartData[:i], chartData[i+1:]...)
+		}
+	}*/
+
+	plotToFile(os.Args[3], chartData)
 }
 
-func smooth(data []*orientation) []*orientation {
+func smooth(data []*orientation, iterations int, averageSize float64) []*orientation {
 	startTime := data[0].Timestamp
 
 	newData := make([]*orientation, data[len(data)-1].Timestamp-startTime)
@@ -99,8 +155,8 @@ func smooth(data []*orientation) []*orientation {
 		}
 	}
 
-	for i := 0; i < 2; i++ {
-		averageSize := 400.0
+	for i := 0; i < iterations; i++ {
+		averageSize := averageSize
 
 		averageData := make([]*orientation, 0, int(averageSize))
 		for i := 0; i < int(averageSize); i++ {
@@ -122,7 +178,7 @@ func smooth(data []*orientation) []*orientation {
 	return newData
 }
 
-func plotToFile(name string, data []*orientation) error {
+func plotToFile(name string, data []float64) error {
 	file, err := os.Create("/tmp/" + name + ".jpg")
 	defer file.Close()
 	if err != nil {
@@ -130,12 +186,9 @@ func plotToFile(name string, data []*orientation) error {
 	}
 	dataXYs := make(plotter.XYs, len(data))
 
-	minX := data[0].Timestamp
-
 	for i := 0; i < len(data); i++ {
-		dataXYs[i].X = float64(data[i].Timestamp - minX)
-		dataXYs[i].Y = math.Sqrt(data[i].Pitch*data[i].Pitch + data[i].Yaw*data[i].Yaw)
-		fmt.Println(dataXYs[i].X, dataXYs[i].Y)
+		dataXYs[i].X = float64(i)
+		dataXYs[i].Y = data[i]
 	}
 
 	line, err := plotter.NewLine(dataXYs)
@@ -166,3 +219,52 @@ func plotToFile(name string, data []*orientation) error {
 
 	return err
 }
+
+/*
+func plotToFile(name string, data []*orientation) error {
+	file, err := os.Create("/tmp/" + name + ".jpg")
+	defer file.Close()
+	if err != nil {
+		return err
+	}
+	dataXYs := make(plotter.XYs, len(data))
+
+	minX := data[0].Timestamp
+
+	for i := 0; i < len(data); i++ {
+		dataXYs[i].X = float64(data[i].Timestamp - minX)
+		dataXYs[i].Y = (data[i].Pitch * data[i].Pitch + data[i].Yaw * data[i].Yaw)
+		fmt.Println(dataXYs[i].X, dataXYs[i].Y)
+	}
+
+	line, err := plotter.NewLine(dataXYs)
+	if err != nil {
+		return err
+	}
+
+	line.LineStyle.Width = vg.Points(1)
+	line.LineStyle.Color = color.RGBA{R: 255, B: 255, A: 255}
+
+	p, err := plot.New()
+	if err != nil {
+		return err
+	}
+
+	p.Title.Text = name
+	p.X.Label.Text = "t"
+	p.Y.Label.Text = "Data"
+	p.Add(plotter.NewGrid())
+	p.Add(line)
+
+	wt, err := p.WriterTo(vg.Inch * 16, vg.Inch * 16, "jpg")
+	if err != nil {
+		return err
+	}
+
+	_, err = wt.WriteTo(file)
+
+	return err
+}
+*/
+
+//func chartSinusoids(name string, )
